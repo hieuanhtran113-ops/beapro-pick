@@ -156,6 +156,9 @@
           const [picksLeftInTurn, setPicksLeftInTurn] = useState(2); 
           const [pickStarted, setPickStarted] = useState(false);
           
+          // HISTORICAL STACK FOR UNDO
+          const [historyStack, setHistoryStack] = useState([]);
+
           const [isSynced, setIsSynced] = useState(false);
           const [connectionError, setConnectionError] = useState(false);
 
@@ -191,6 +194,7 @@
                           if (typeof data.picksLeftInTurn === 'number') setPicksLeftInTurn(data.picksLeftInTurn);
                           if (typeof data.pickStarted === 'boolean') setPickStarted(data.pickStarted);
                           if (typeof data.step === 'number') setStep(data.step);
+                          if (data.historyStack) setHistoryStack(data.historyStack);
                       }
                       setIsSynced(true);
                       setConnectionError(false);
@@ -265,7 +269,8 @@
                       pickStarted: false,
                       currentRound: 0,
                       currentTurnIndex: 0,
-                      picksLeftInTurn: 2
+                      picksLeftInTurn: 2,
+                      historyStack: []
                   };
                   setStep(1);
                   setCoaches(freshState.coaches);
@@ -273,6 +278,7 @@
                   setCurrentRound(0);
                   setCurrentTurnIndex(0);
                   setPicksLeftInTurn(2);
+                  setHistoryStack([]);
                   updateCloudState(freshState);
                   showToast("Đã làm mới phòng thành công!", "success");
               }
@@ -421,7 +427,51 @@
             showToast("Thêm cầu thủ thành công!", "success");
           };
 
-          const nextTurn = (rIdx, tIdx, pLeft, cList, pStartedFlag) => {
+          // SAVE STATE TO HISTORY BEFORE MAKING A PICK OR SKIP
+          const saveStateToHistory = () => {
+              const currentStateSnapshot = {
+                  currentRound,
+                  currentTurnIndex,
+                  picksLeftInTurn,
+                  coaches: JSON.parse(JSON.stringify(coaches)),
+                  pickStarted
+              };
+              const newHistory = [...historyStack, currentStateSnapshot];
+              setHistoryStack(newHistory);
+              return newHistory;
+          };
+
+          const handleUndo = () => {
+              if (loggedInRole !== 'host') {
+                  showToast("Chỉ Host mới có quyền Undo!", "error");
+                  return;
+              }
+              if (historyStack.length === 0) {
+                  showToast("Không còn lượt nào để Undo!", "error");
+                  return;
+              }
+              const lastState = historyStack[historyStack.length - 1];
+              const remainingHistory = historyStack.slice(0, historyStack.length - 1);
+
+              setCurrentRound(lastState.currentRound);
+              setCurrentTurnIndex(lastState.currentTurnIndex);
+              setPicksLeftInTurn(lastState.picksLeftInTurn);
+              setCoaches(lastState.coaches);
+              setPickStarted(lastState.pickStarted);
+              setHistoryStack(remainingHistory);
+
+              updateCloudState({
+                  currentRound: lastState.currentRound,
+                  currentTurnIndex: lastState.currentTurnIndex,
+                  picksLeftInTurn: lastState.picksLeftInTurn,
+                  coaches: lastState.coaches,
+                  pickStarted: lastState.pickStarted,
+                  historyStack: remainingHistory
+              });
+              showToast("Đã quay lại lượt pick trước (Undo thành công)!", "success");
+          };
+
+          const nextTurn = (rIdx, tIdx, pLeft, cList, pStartedFlag, hList) => {
             const nextTurnIdx = tIdx + 1;
             if (nextTurnIdx < roundsConfig[rIdx].order.length) {
               const newState = {
@@ -429,12 +479,14 @@
                   currentTurnIndex: nextTurnIdx,
                   picksLeftInTurn: roundsConfig[rIdx].picks,
                   coaches: cList,
-                  pickStarted: pStartedFlag
+                  pickStarted: pStartedFlag,
+                  historyStack: hList
               };
               setCurrentRound(rIdx);
               setCurrentTurnIndex(nextTurnIdx);
               setPicksLeftInTurn(roundsConfig[rIdx].picks);
               setCoaches(cList);
+              setHistoryStack(hList);
               updateCloudState(newState);
             } else {
               if (rIdx < 7) {
@@ -443,20 +495,24 @@
                     currentTurnIndex: 0,
                     picksLeftInTurn: roundsConfig[rIdx + 1].picks,
                     coaches: cList,
-                    pickStarted: pStartedFlag
+                    pickStarted: pStartedFlag,
+                    historyStack: hList
                 };
                 setCurrentRound(rIdx + 1);
                 setCurrentTurnIndex(0);
                 setPicksLeftInTurn(roundsConfig[rIdx + 1].picks);
                 setCoaches(cList);
+                setHistoryStack(hList);
                 updateCloudState(newState);
               } else {
                 const newState = {
                     pickStarted: false,
-                    coaches: cList
+                    coaches: cList,
+                    historyStack: hList
                 };
                 setPickStarted(false);
                 setCoaches(cList);
+                setHistoryStack(hList);
                 updateCloudState(newState);
                 showToast("Quá trình Pick Hoàn Tất!", "success");
               }
@@ -494,21 +550,25 @@
               }
             }
 
+            const newHistory = saveStateToHistory();
+
             const newCoaches = JSON.parse(JSON.stringify(coaches));
             if (!newCoaches[coachIndex].squad) newCoaches[coachIndex].squad = [];
             newCoaches[coachIndex].squad.push(player);
 
             const newPicksLeft = picksLeftInTurn - 1;
             if (newPicksLeft <= 0) {
-              nextTurn(currentRound, currentTurnIndex, roundsConfig[currentRound].picks, newCoaches, pickStarted);
+              nextTurn(currentRound, currentTurnIndex, roundsConfig[currentRound].picks, newCoaches, pickStarted, newHistory);
             } else {
               setCurrentRound(currentRound);
               setCurrentTurnIndex(currentTurnIndex);
               setPicksLeftInTurn(newPicksLeft);
               setCoaches(newCoaches);
+              setHistoryStack(newHistory);
               updateCloudState({
                   coaches: newCoaches,
-                  picksLeftInTurn: newPicksLeft
+                  picksLeftInTurn: newPicksLeft,
+                  historyStack: newHistory
               });
             }
             showToast(`Đã pick thành công ${player.name} (${player.season}) cho ${coach.name}!`, "success");
@@ -533,21 +593,25 @@
               isSkip: true
             };
 
+            const newHistory = saveStateToHistory();
+
             const newCoaches = JSON.parse(JSON.stringify(coaches));
             if (!newCoaches[coachIndex].squad) newCoaches[coachIndex].squad = [];
             newCoaches[coachIndex].squad.push(skipPlayer);
 
             const newPicksLeft = picksLeftInTurn - 1;
             if (newPicksLeft <= 0) {
-              nextTurn(currentRound, currentTurnIndex, roundsConfig[currentRound].picks, newCoaches, pickStarted);
+              nextTurn(currentRound, currentTurnIndex, roundsConfig[currentRound].picks, newCoaches, pickStarted, newHistory);
             } else {
               setCurrentRound(currentRound);
               setCurrentTurnIndex(currentTurnIndex);
               setPicksLeftInTurn(newPicksLeft);
               setCoaches(newCoaches);
+              setHistoryStack(newHistory);
               updateCloudState({
                   coaches: newCoaches,
-                  picksLeftInTurn: newPicksLeft
+                  picksLeftInTurn: newPicksLeft,
+                  historyStack: newHistory
               });
             }
             showToast(`Đã bỏ qua lượt pick của ${coach.name}`, "success");
@@ -868,9 +932,14 @@ Ronaldo - ST - Legends"></textarea>
                       <div className="mb-4 text-center">
                         {/* ONLY RENDER EXCEL EXPORT BUTTON FOR HOST */}
                         {loggedInRole === 'host' && (
-                            <button onClick={exportToExcel} className="w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white py-2.5 rounded-lg font-extrabold shadow-lg mb-4 transition-all cursor-pointer tracking-wide text-sm flex items-center justify-center gap-2">
-                            <span>⬇</span> Xuất file Excel
-                            </button>
+                            <div className="flex gap-2 mb-3">
+                              <button onClick={exportToExcel} className="flex-1 bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white py-2 rounded-lg font-extrabold shadow-lg transition-all cursor-pointer tracking-wide text-xs flex items-center justify-center gap-1">
+                                <span>⬇</span> Xuất Excel
+                              </button>
+                              <button onClick={handleUndo} disabled={historyStack.length === 0} className="flex-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white py-2 rounded-lg font-extrabold shadow-lg transition-all cursor-pointer tracking-wide text-xs flex items-center justify-center gap-1 disabled:opacity-40 disabled:cursor-not-allowed">
+                                <span>↩️</span> Undo ({historyStack.length})
+                              </button>
+                            </div>
                         )}
                         <h2 className="text-xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 mb-3 uppercase tracking-wider">ĐỢT {currentRound + 1} / 8</h2>
                         
