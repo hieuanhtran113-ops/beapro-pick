@@ -88,12 +88,8 @@
     <script type="text/babel">
         const { useState, useEffect } = React;
 
-        // =========================================================================
-        // HƯỚNG DẪN DÀNH CHO BẠN:
-        // THAY ĐỔI ĐƯỜNG LINK BÊN DƯỚI THÀNH DATABASE CỦA BẠN ĐỂ CHẠY ONLINE
-        // =========================================================================
         const firebaseConfig = {
-            databaseURL: "https://bap-pick-aa050-default-rtdb.asia-southeast1.firebasedatabase.app/" // <--- THAY ĐƯỜNG LINK CỦA BẠN VÀO ĐÂY
+            databaseURL: "https://bap-pick-aa050-default-rtdb.asia-southeast1.firebasedatabase.app/"
         };
 
         if (!firebase.apps.length) {
@@ -119,9 +115,10 @@
 
           const urlParams = new URLSearchParams(window.location.search);
           const isViewer = urlParams.get('role') === 'viewer';
-          const initRoom = urlParams.get('room') || 'phong-mac-dinh';
+          const initRoom = urlParams.get('room') || 'giai-dau-moi-' + Math.floor(Math.random() * 1000);
 
           const [roomCode, setRoomCode] = useState(initRoom);
+          const [inputNewRoom, setInputNewRoom] = useState(initRoom);
 
           const [step, setStep] = useState(1);
           const [coaches, setCoaches] = useState(Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `HLV ${i + 1}`, squad: [] })));
@@ -153,7 +150,6 @@
           const [connectionError, setConnectionError] = useState(false);
 
           useEffect(() => {
-              // Bắt đầu tính giờ kết nối, nếu quá 6 giây không phản hồi -> Báo lỗi
               const timeout = setTimeout(() => {
                   if (!isSynced) setConnectionError(true);
               }, 6000);
@@ -176,7 +172,6 @@
                       setConnectionError(false);
                       clearTimeout(timeout);
                   }, (error) => {
-                      console.error("Firebase Error:", error);
                       setConnectionError(true);
                   });
                   return () => roomRef.off();
@@ -193,6 +188,33 @@
               } catch(e) {
                   showToast("Không thể đồng bộ với Server", "error");
               }
+          };
+
+          const handleResetRoom = () => {
+              if (window.confirm("Bạn có chắc chắn muốn làm mới lại phòng này từ đầu (Về Bước 1) không?")) {
+                  const freshState = {
+                      step: 1,
+                      coaches: Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `HLV ${i + 1}`, squad: [] })),
+                      pickStarted: false,
+                      currentRound: 0,
+                      currentTurnIndex: 0,
+                      picksLeftInTurn: 2
+                  };
+                  setStep(1);
+                  setCoaches(freshState.coaches);
+                  setPickStarted(false);
+                  setCurrentRound(0);
+                  setCurrentTurnIndex(0);
+                  setPicksLeftInTurn(2);
+                  updateCloudState(freshState);
+                  showToast("Đã làm mới phòng thành công!", "success");
+              }
+          };
+
+          const handleJoinNewRoom = (e) => {
+              e.preventDefault();
+              if(!inputNewRoom.trim()) return;
+              window.location.href = window.location.origin + window.location.pathname + '?room=' + inputNewRoom.trim();
           };
 
           const showToast = (message, type = "error") => {
@@ -481,21 +503,13 @@
             window.XLSX.writeFile(workbook, "Ket_Qua_Pick.xlsx");
           };
 
-          // --- VIEWERS RENDERING LOGIC ---
           if (connectionError) {
               return (
                   <div className="min-h-screen flex flex-col items-center justify-center bg-[#070a14] text-white p-6 text-center">
                       <div className="text-red-500 text-6xl mb-4">⚠️</div>
                       <h2 className="text-2xl font-black text-red-400 mb-2">LỖI KẾT NỐI MÁY CHỦ</h2>
                       <p className="text-gray-400 max-w-xl">
-                          Ứng dụng không thể kết nối tới cơ sở dữ liệu Firebase. 
-                          Có thể URL mặc định bị lỗi hoặc bạn chưa cấu hình Database hợp lệ.
-                      </p>
-                      <p className="text-gray-500 mt-4 text-sm bg-gray-900 p-4 rounded-lg border border-gray-800">
-                          <strong>Hướng dẫn sửa lỗi cho Host:</strong><br/>
-                          1. Mở file HTML bằng Notepad hoặc VS Code.<br/>
-                          2. Tìm dòng <code>databaseURL: "https://beapro-football-pick-default-rtdb.firebaseio.com/"</code><br/>
-                          3. Thay thế bằng đường dẫn Firebase Realtime Database của riêng bạn (nhớ mở quyền Rules đọc/ghi thành true).
+                          Ứng dụng không thể kết nối tới cơ sở dữ liệu Firebase. Hãy đảm bảo bạn đã cấu hình Firebase Realtime Database chính xác.
                       </p>
                   </div>
               )
@@ -523,7 +537,6 @@
               )
           }
 
-          // --- MAIN HOST & VIEWER DASHBOARD RENDERING ---
           return (
             <div className="min-h-screen text-white p-6" style={{backgroundColor: '#070a14'}}>
               {toast && (
@@ -550,13 +563,35 @@
                   </div>
                   
                   {!isViewer && (
-                    <div className="flex items-center gap-2">
-                      <button onClick={copyShareLink} className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-4 py-2 rounded-lg font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1.5">
-                        <span>🔗</span> Copy Link Mời HLV (Chỉ xem)
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <button onClick={handleResetRoom} className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1">
+                        <span>🔄</span> Làm mới phòng (Về Bước 1)
+                      </button>
+                      <button onClick={copyShareLink} className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1">
+                        <span>🔗</span> Copy Link Mời (Chỉ xem)
                       </button>
                     </div>
                   )}
                 </div>
+
+                {/* FORM TẠO/ĐỔI PHÒNG MỚI NẾU CẦN */}
+                {!isViewer && step === 1 && (
+                  <div className="bg-gray-900/60 border border-gray-800 p-4 rounded-xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
+                    <div className="text-sm">
+                      Bạn đang tạo phòng với mã: <span className="text-yellow-400 font-mono font-bold text-base">{roomCode}</span>. Bạn có thể đổi sang mã phòng khác để bắt đầu giải đấu mới hoàn toàn.
+                    </div>
+                    <form onSubmit={handleJoinNewRoom} className="flex gap-2 w-full md:w-auto">
+                      <input 
+                        type="text" 
+                        value={inputNewRoom} 
+                        onChange={(e)=>setInputNewRoom(e.target.value)} 
+                        placeholder="Nhập mã phòng mới..." 
+                        className="bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
+                      />
+                      <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer">Đổi Phòng</button>
+                    </form>
+                  </div>
+                )}
                 
                 {/* STEP 1 TO 3 ARE ONLY FOR HOST */}
                 {!isViewer && step === 1 && (
