@@ -114,11 +114,21 @@
           ];
 
           const urlParams = new URLSearchParams(window.location.search);
-          const isViewer = urlParams.get('role') === 'viewer';
           const initRoom = urlParams.get('room') || 'giai-dau-moi-' + Math.floor(Math.random() * 1000);
+          const initRoleParam = urlParams.get('role'); // e.g. viewer
 
           const [roomCode, setRoomCode] = useState(initRoom);
           const [inputNewRoom, setInputNewRoom] = useState(initRoom);
+
+          // AUTH STATES
+          const [loggedInRole, setLoggedInRole] = useState(null); // 'host' or 'viewer'
+          const [loginPassword, setLoginPassword] = useState('');
+          const [selectedRoleToLogin, setSelectedRoleToLogin] = useState(initRoleParam === 'viewer' ? 'viewer' : 'host');
+
+          // Room settings for passwords
+          const [adminPassword, setAdminPassword] = useState('admin123');
+          const [viewerPassword, setViewerPassword] = useState('xem123');
+          const [newViewerPasswordInput, setNewViewerPasswordInput] = useState('');
 
           const [step, setStep] = useState(1);
           const [coaches, setCoaches] = useState(Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `HLV ${i + 1}`, squad: [] })));
@@ -149,6 +159,18 @@
           const [isSynced, setIsSynced] = useState(false);
           const [connectionError, setConnectionError] = useState(false);
 
+          // Check localStorage for logged in session on mount (unless role=viewer in URL)
+          useEffect(() => {
+              if (initRoleParam === 'viewer') {
+                  setSelectedRoleToLogin('viewer');
+              } else {
+                  const savedRole = localStorage.getItem('beapro_role_' + roomCode);
+                  if (savedRole) {
+                      setLoggedInRole(savedRole);
+                  }
+              }
+          }, [roomCode, initRoleParam]);
+
           useEffect(() => {
               const timeout = setTimeout(() => {
                   if (!isSynced) setConnectionError(true);
@@ -162,6 +184,8 @@
                           if (data.coaches) setCoaches(data.coaches);
                           if (data.restrictedRules) setRestrictedRules(data.restrictedRules);
                           if (data.database) setDatabase(data.database);
+                          if (data.adminPassword) setAdminPassword(data.adminPassword);
+                          if (data.viewerPassword) setViewerPassword(data.viewerPassword);
                           if (typeof data.currentRound === 'number') setCurrentRound(data.currentRound);
                           if (typeof data.currentTurnIndex === 'number') setCurrentTurnIndex(data.currentTurnIndex);
                           if (typeof data.picksLeftInTurn === 'number') setPicksLeftInTurn(data.picksLeftInTurn);
@@ -181,7 +205,7 @@
           }, [roomCode]);
 
           const updateCloudState = (newState) => {
-              if (isViewer) return; 
+              if (loggedInRole !== 'host') return; 
               try {
                   const roomRef = db.ref('rooms/' + roomCode);
                   roomRef.update(newState);
@@ -190,7 +214,50 @@
               }
           };
 
+          const handleLoginSubmit = (e) => {
+              e.preventDefault();
+              if (selectedRoleToLogin === 'host') {
+                  if (loginPassword === adminPassword) {
+                      setLoggedInRole('host');
+                      localStorage.setItem('beapro_role_' + roomCode, 'host');
+                      setLoginPassword('');
+                      showToast("Đăng nhập quyền Host thành công!", "success");
+                  } else {
+                      showToast("Mật khẩu Host không đúng!", "error");
+                  }
+              } else {
+                  if (loginPassword === viewerPassword) {
+                      setLoggedInRole('viewer');
+                      localStorage.setItem('beapro_role_' + roomCode, 'viewer');
+                      setLoginPassword('');
+                      showToast("Đăng nhập Chế độ xem thành công!", "success");
+                  } else {
+                      showToast("Mật khẩu xem phòng không đúng!", "error");
+                  }
+              }
+          };
+
+          const handleUpdateViewerPassword = () => {
+              if (loggedInRole !== 'host') return;
+              if (!newViewerPasswordInput.trim()) {
+                  showToast("Vui lòng nhập mật khẩu mới cho viewer!", "error");
+                  return;
+              }
+              const newPass = newViewerPasswordInput.trim();
+              setViewerPassword(newPass);
+              setNewViewerPasswordInput('');
+              updateCloudState({ viewerPassword: newPass });
+              showToast("Đã cập nhật mật khẩu cho Viewer thành công!", "success");
+          };
+
+          const handleLogout = () => {
+              setLoggedInRole(null);
+              localStorage.removeItem('beapro_role_' + roomCode);
+              window.location.href = window.location.origin + window.location.pathname + '?room=' + roomCode;
+          };
+
           const handleResetRoom = () => {
+              if (loggedInRole !== 'host') { showToast("Chỉ có Host mới có quyền tạo mới phòng!", "error"); return; }
               if (window.confirm("Bạn có chắc chắn muốn làm mới lại phòng này từ đầu (Về Bước 1) không?")) {
                   const freshState = {
                       step: 1,
@@ -214,7 +281,11 @@
           const handleJoinNewRoom = (e) => {
               e.preventDefault();
               if(!inputNewRoom.trim()) return;
-              window.location.href = window.location.origin + window.location.pathname + '?room=' + inputNewRoom.trim();
+              const newR = inputNewRoom.trim();
+              setRoomCode(newR);
+              const newUrl = window.location.origin + window.location.pathname + '?room=' + newR;
+              window.history.pushState({path: newUrl}, '', newUrl);
+              showToast(`Đã chuyển sang phòng: ${newR}`, "success");
           };
 
           const showToast = (message, type = "error") => {
@@ -278,6 +349,7 @@
           const displayPlayers = filteredPlayers.slice(0, 100);
 
           const handleAddRule = () => {
+            if (loggedInRole !== 'host') return;
             if (!newRuleSeason.trim()) {
               showToast("Vui lòng nhập tên mùa cần giới hạn!"); return;
             }
@@ -294,12 +366,14 @@
           };
 
           const handleRemoveRule = (seasonToRemove) => {
+            if (loggedInRole !== 'host') return;
             const updatedRules = restrictedRules.filter(r => r.season !== seasonToRemove);
             setRestrictedRules(updatedRules);
             updateCloudState({ restrictedRules: updatedRules });
           };
 
           const handleImportBulk = () => {
+            if (loggedInRole !== 'host') return;
             const lines = importText.split('\n');
             const newDb = [...database];
             let count = 0;
@@ -328,6 +402,7 @@
           };
 
           const handleAddSingle = () => {
+            if (loggedInRole !== 'host') return;
             if (!singlePlayer.name || !singlePlayer.position || !singlePlayer.season) {
               showToast("Vui lòng nhập đủ thông tin cầu thủ!"); return;
             }
@@ -389,7 +464,10 @@
           };
 
           const handlePick = (player) => {
-            if (isViewer) return;
+            if (loggedInRole !== 'host') {
+                showToast("Bạn đang ở chế độ xem (Viewer), không có quyền thao tác pick cầu thủ!", "error");
+                return;
+            }
 
             const status = getPlayerStatus(player);
             if (status === 'PICKED_ANY') { 
@@ -437,7 +515,10 @@
           };
 
           const handleSkip = () => {
-            if (isViewer) return;
+            if (loggedInRole !== 'host') {
+                showToast("Bạn đang ở chế độ xem (Viewer), không có quyền thao tác!", "error");
+                return;
+            }
 
             const coachIndex = coaches.findIndex(c => c.id === currentCoachId);
             const coach = coaches[coachIndex];
@@ -472,10 +553,10 @@
             showToast(`Đã bỏ qua lượt pick của ${coach.name}`, "success");
           };
 
-          const copyShareLink = () => {
-              const currentUrl = window.location.origin + window.location.pathname + '?room=' + roomCode + '&role=viewer';
-              navigator.clipboard.writeText(currentUrl);
-              showToast("Đã copy link phòng Realtime cho các HLV (Chế độ chỉ xem)!", "success");
+          const copyViewerShareLink = () => {
+              const viewerUrl = window.location.origin + window.location.pathname + '?room=' + roomCode + '&role=viewer';
+              navigator.clipboard.writeText(viewerUrl);
+              showToast("Đã copy link viewer thành công!", "success");
           };
 
           const exportToExcel = () => {
@@ -524,14 +605,73 @@
               )
           }
 
-          if (isViewer && !pickStarted) {
+          // LOGIN MODAL OVERLAY IF NO ROLE CHOSEN
+          if (!loggedInRole) {
+              return (
+                  <div className="min-h-screen flex flex-col items-center justify-center bg-[#070a14] text-white p-6">
+                      <div className="bg-gray-900 border border-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full backdrop-blur">
+                          <div className="text-center mb-6">
+                              <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-cyan-400 uppercase tracking-wide">ĐĂNG NHẬP HỆ THỐNG</h2>
+                              <p className="text-xs text-gray-400 mt-1">Phòng pick: <strong className="text-yellow-400 font-mono">{roomCode}</strong></p>
+                              {selectedRoleToLogin === 'viewer' && (
+                                  <p className="text-[11px] text-purple-400 mt-1 font-semibold">🔗 Truy cập qua link người xem</p>
+                              )}
+                          </div>
+
+                          <form onSubmit={handleLoginSubmit} className="space-y-4">
+                              <div>
+                                  <label className="text-xs text-gray-300 font-semibold mb-1 block uppercase">Chọn vai trò truy cập:</label>
+                                  <select 
+                                      value={selectedRoleToLogin} 
+                                      onChange={(e) => setSelectedRoleToLogin(e.target.value)}
+                                      className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm font-bold outline-none cursor-pointer"
+                                  >
+                                      <option value="host">👑 Host (Quản trị viên / Điều hành phòng)</option>
+                                      <option value="viewer">👀 Người xem (Chỉ xem realtime)</option>
+                                  </select>
+                              </div>
+
+                              <div>
+                                  <label className="text-xs text-gray-300 font-semibold mb-1 block uppercase">Mật khẩu đăng nhập:</label>
+                                  <input 
+                                      type="password" 
+                                      value={loginPassword} 
+                                      onChange={(e) => setLoginPassword(e.target.value)}
+                                      placeholder={selectedRoleToLogin === 'host' ? "Nhập mật khẩu Host..." : "Nhập mật khẩu xem phòng do Host cung cấp..."}
+                                      className="w-full bg-gray-800 border border-gray-700 p-3 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500"
+                                      autoFocus
+                                  />
+                              </div>
+
+                              <button 
+                                  type="submit" 
+                                  className="w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-3 rounded-xl font-black uppercase text-sm tracking-wide shadow-lg transition-all cursor-pointer mt-4"
+                              >
+                                  Xác Nhận Đăng Nhập
+                              </button>
+                          </form>
+
+                          <div className="mt-6 pt-4 border-t border-gray-800 text-center">
+                              <a href="?room=phong-mac-dinh" className="text-xs text-cyan-400 hover:underline font-semibold">
+                                  🔗 Vào nhanh phòng mặc định
+                              </a>
+                          </div>
+                      </div>
+                  </div>
+              );
+          }
+
+          if (loggedInRole === 'viewer' && !pickStarted) {
               return (
                   <div className="min-h-screen flex flex-col items-center justify-center bg-[#070a14] text-white p-6 text-center">
                       <div className="animate-spin text-6xl mb-6 opacity-80">⏳</div>
                       <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-yellow-400 to-orange-400 mb-3 tracking-widest uppercase">VUI LÒNG CHỜ...</h2>
                       <p className="text-gray-400 text-lg">Host đang thiết lập giải đấu. Giao diện Pick sẽ tự động hiện ra khi Host bấm Bắt đầu.</p>
-                      <div className="mt-8 p-4 bg-gray-900 border border-gray-800 rounded-lg shadow-inner">
-                          <span className="text-sm text-gray-500">Mã phòng: <strong className="text-blue-400">{roomCode}</strong></span>
+                      <div className="mt-8 flex flex-col items-center gap-3">
+                          <div className="p-3 bg-gray-900 border border-gray-800 rounded-lg shadow-inner">
+                              <span className="text-sm text-gray-500">Mã phòng: <strong className="text-blue-400">{roomCode}</strong></span>
+                          </div>
+                          <button onClick={handleLogout} className="text-xs text-red-400 hover:underline cursor-pointer font-bold">🚪 Đăng xuất tài khoản</button>
                       </div>
                   </div>
               )
@@ -553,48 +693,72 @@
                       <h1 className="text-2xl md:text-3xl font-black tracking-wider text-transparent bg-clip-text bg-gradient-to-r from-blue-400 via-indigo-300 to-cyan-400 uppercase" style={{fontFamily: "'Kanit', sans-serif", fontWeight: 900}}>
                         BE A PRO: FOOTBALL - HỆ THỐNG PICK CẦU THỦ
                       </h1>
-                      <p className="text-xs text-gray-400 mt-1 flex items-center gap-2" style={{fontFamily: "'Kanit', sans-serif", fontWeight: 400}}>
+                      <p className="text-xs text-gray-400 mt-1 flex items-center gap-2 flex-wrap" style={{fontFamily: "'Kanit', sans-serif", fontWeight: 400}}>
                         <span>Trạng thái: <strong className="text-emerald-400 font-bold">🟢 Đang kết nối Realtime Cloud</strong></span>
                         <span>•</span>
                         <span>Mã Phòng: <strong className="text-yellow-400 font-mono">{roomCode}</strong></span>
-                        {isViewer && <span>• <strong className="text-purple-400 font-bold uppercase">(Chế độ Người xem)</strong></span>}
+                        <span>•</span>
+                        <span>Tài khoản: <strong className={loggedInRole === 'host' ? 'text-amber-400 font-bold' : 'text-purple-400 font-bold'}>{loggedInRole === 'host' ? '👑 Host (Quản trị)' : '👀 Người xem (Viewer)'}</strong></span>
                       </p>
                     </div>
                   </div>
                   
-                  {!isViewer && (
-                    <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {loggedInRole === 'host' && (
                       <button onClick={handleResetRoom} className="bg-amber-600 hover:bg-amber-500 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1">
                         <span>🔄</span> Tạo mới phòng
                       </button>
-                      <button onClick={copyShareLink} className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-500 hover:to-cyan-500 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1">
-                        <span>🔗</span> Copy Link Mời (Chỉ xem)
-                      </button>
-                    </div>
-                  )}
+                    )}
+                    <button onClick={copyViewerShareLink} className="bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white px-3 py-2 rounded-lg font-bold text-xs shadow-md transition-all cursor-pointer flex items-center gap-1">
+                      <span>🔗</span> Copy link viewer
+                    </button>
+                    <button onClick={handleLogout} className="bg-gray-800 hover:bg-gray-700 text-red-400 px-3 py-2 rounded-lg font-bold text-xs border border-gray-700 cursor-pointer">
+                      🚪 Đăng Xuất
+                    </button>
+                  </div>
                 </div>
 
-                {/* FORM TẠO/ĐỔI PHÒNG MỚI NẾU CẦN */}
-                {!isViewer && step === 1 && (
-                  <div className="bg-gray-900/60 border border-gray-800 p-4 rounded-xl mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
-                    <div className="text-sm">
-                      Bạn đang tạo phòng với mã: <span className="text-yellow-400 font-mono font-bold text-base">{roomCode}</span>. Bạn có thể đổi sang mã phòng khác để bắt đầu giải đấu mới hoàn toàn.
+                {/* FORM ĐỔI MÃ PHÒNG MỚI (VẪN Ở LẠI ADMIN) & CÀI MẬT KHẨU VIEWER */}
+                {loggedInRole === 'host' && step === 1 && (
+                  <div className="grid md:grid-cols-2 gap-4 mb-6">
+                    <div className="bg-gray-900/60 border border-gray-800 p-4 rounded-xl flex flex-col justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-blue-400 uppercase mb-1">Đổi tên / Mã phòng</h3>
+                        <p className="text-xs text-gray-400">Đang ở phòng: <span className="text-yellow-400 font-mono font-bold text-base">{roomCode}</span></p>
+                      </div>
+                      <form onSubmit={handleJoinNewRoom} className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={inputNewRoom} 
+                          onChange={(e)=>setInputNewRoom(e.target.value)} 
+                          placeholder="Mã phòng mới..." 
+                          className="bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold outline-none flex-1"
+                        />
+                        <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer">Đổi Phòng</button>
+                      </form>
                     </div>
-                    <form onSubmit={handleJoinNewRoom} className="flex gap-2 w-full md:w-auto">
-                      <input 
-                        type="text" 
-                        value={inputNewRoom} 
-                        onChange={(e)=>setInputNewRoom(e.target.value)} 
-                        placeholder="Nhập mã phòng mới..." 
-                        className="bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold outline-none"
-                      />
-                      <button type="submit" className="bg-indigo-600 hover:bg-indigo-500 px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer">Đổi Phòng</button>
-                    </form>
+
+                    <div className="bg-gray-900/60 border border-gray-800 p-4 rounded-xl flex flex-col justify-between gap-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-cyan-400 uppercase mb-1">Mật khẩu đăng nhập cho Viewer</h3>
+                        <p className="text-xs text-gray-400">Mật khẩu hiện tại: <span className="text-yellow-400 font-mono font-bold">{viewerPassword}</span></p>
+                      </div>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text" 
+                          value={newViewerPasswordInput} 
+                          onChange={(e)=>setNewViewerPasswordInput(e.target.value)} 
+                          placeholder="Mật khẩu viewer mới..." 
+                          className="bg-gray-800 border border-gray-700 px-3 py-1.5 rounded-lg text-xs font-bold outline-none flex-1"
+                        />
+                        <button type="button" onClick={handleUpdateViewerPassword} className="bg-cyan-600 hover:bg-cyan-500 px-4 py-1.5 rounded-lg text-xs font-bold cursor-pointer">Cập Nhật Pass</button>
+                      </div>
+                    </div>
                   </div>
                 )}
                 
                 {/* STEP 1 TO 3 ARE ONLY FOR HOST */}
-                {!isViewer && step === 1 && (
+                {loggedInRole === 'host' && step === 1 && (
                   <div className="bg-gray-900/90 border border-gray-800 p-6 rounded-xl shadow-2xl backdrop-blur">
                     <h2 className="text-xl font-bold mb-4 text-blue-400 tracking-wide uppercase">BƯỚC 1: NHẬP TÊN CÁC HUẤN LUYỆN VIÊN</h2>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -621,7 +785,7 @@
                   </div>
                 )}
 
-                {!isViewer && step === 2 && (
+                {loggedInRole === 'host' && step === 2 && (
                   <div className="bg-gray-900/90 border border-gray-800 p-6 rounded-xl shadow-2xl backdrop-blur">
                     <h2 className="text-xl font-bold mb-2 text-blue-400 tracking-wide uppercase">BƯỚC 2: CÀI ĐẶT QUY ĐỊNH GIỚI HẠN MÙA THẺ</h2>
                     <p className="text-sm text-gray-400 mb-6">Hệ thống đã nạp sẵn các mùa thẻ mẫu (Legends, WCC, WC26, WCI, WK). Bạn có thể thêm, chỉnh sửa hoặc xóa tùy ý.</p>
@@ -656,7 +820,7 @@
                   </div>
                 )}
 
-                {!isViewer && step === 3 && (
+                {loggedInRole === 'host' && step === 3 && (
                   <div className="bg-gray-900/90 border border-gray-800 p-6 rounded-xl shadow-2xl backdrop-blur">
                     <h2 className="text-xl font-bold mb-4 text-blue-400 tracking-wide uppercase">BƯỚC 3: NẠP DỮ LIỆU CẦU THỦ</h2>
                     <div className="grid md:grid-cols-2 gap-8">
@@ -685,12 +849,20 @@ Ronaldo - ST - Legends"></textarea>
                   </div>
                 )}
 
+                {loggedInRole === 'viewer' && step < 4 && !pickStarted && (
+                  <div className="bg-gray-900/90 border border-gray-800 p-8 rounded-xl text-center">
+                    <h3 className="text-xl font-bold text-yellow-400 mb-2">Đang ở chế độ xem (Viewer)</h3>
+                    <p className="text-gray-400 text-sm">Host đang chuẩn bị thiết lập các bước đầu. Giao diện sẽ tự động chuyển khi bắt đầu.</p>
+                  </div>
+                )}
+
                 {/* DASHBOARD - RENDER FOR BOTH HOST AND VIEWER (IF VIEWER AND PICKSTARTED) */}
-                {(step === 4 || (isViewer && pickStarted)) && (
+                {(step === 4 || (loggedInRole === 'viewer' && pickStarted)) && (
                   <div className="grid lg:grid-cols-4 gap-6">
                     <div className="lg:col-span-1 bg-gray-900/90 border border-gray-800 p-4 rounded-xl shadow-2xl flex flex-col h-[88vh] backdrop-blur">
                       <div className="mb-4 text-center">
-                        {!isViewer && (
+                        {/* ONLY RENDER EXCEL EXPORT BUTTON FOR HOST */}
+                        {loggedInRole === 'host' && (
                             <button onClick={exportToExcel} className="w-full bg-gradient-to-r from-emerald-600 to-green-600 hover:from-emerald-500 hover:to-green-500 text-white py-2.5 rounded-lg font-extrabold shadow-lg mb-4 transition-all cursor-pointer tracking-wide text-sm flex items-center justify-center gap-2">
                             <span>⬇</span> Xuất file Excel
                             </button>
@@ -699,8 +871,11 @@ Ronaldo - ST - Legends"></textarea>
                         
                         {!pickStarted ? (
                           <div className="flex gap-2">
-                            {!isViewer && (
+                            {loggedInRole === 'host' && (
                                 <button onClick={() => { setPickStarted(true); updateCloudState({ pickStarted: true }); }} className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 py-2.5 rounded-lg font-extrabold text-sm shadow-md transition-all cursor-pointer">Bắt đầu Pick</button>
+                            )}
+                            {loggedInRole === 'viewer' && (
+                                <p className="text-xs text-yellow-400 italic w-full">Đang chờ Host bấm Bắt đầu Pick...</p>
                             )}
                           </div>
                         ) : (
@@ -709,7 +884,7 @@ Ronaldo - ST - Legends"></textarea>
                             <p className="text-lg font-black text-blue-300 my-0.5 tracking-wide">{activeCoach?.name}</p>
                             <p className="text-xs mb-3 text-gray-300">Lượt pick thứ: <span className="text-yellow-400 font-extrabold">{roundsConfig[currentRound].picks - picksLeftInTurn + 1} / {roundsConfig[currentRound].picks}</span></p>
                             
-                            {!isViewer && (
+                            {loggedInRole === 'host' ? (
                                 <div className="flex gap-2 w-full">
                                 <button 
                                     onClick={handleSkip} 
@@ -718,6 +893,8 @@ Ronaldo - ST - Legends"></textarea>
                                     ⏭️ Bỏ Qua
                                 </button>
                                 </div>
+                            ) : (
+                                <span className="text-[11px] text-purple-300 font-semibold italic">(Chế độ chỉ xem thao tác)</span>
                             )}
                           </div>
                         )}
@@ -753,7 +930,7 @@ Ronaldo - ST - Legends"></textarea>
                             let subTextClass = "text-gray-400 text-[11px]";
                             let btnClass = "bg-blue-600 hover:bg-blue-500 text-white cursor-pointer shadow-md";
                             let btnText = "Chọn";
-                            let isDisabled = !pickStarted;
+                            let isDisabled = !pickStarted || loggedInRole !== 'host';
 
                             if (status === 'PICKED_ANY') {
                               bgClass = "bg-red-950/60 border-red-900/60 opacity-60";
@@ -784,7 +961,7 @@ Ronaldo - ST - Legends"></textarea>
                                   <p className={`font-semibold ${subTextClass}`}>{p.position} | <span className="text-indigo-300 font-bold">{p.season}</span></p>
                                 </div>
                                 
-                                {!isViewer ? (
+                                {loggedInRole === 'host' ? (
                                     <button 
                                     onClick={() => handlePick(p)} 
                                     disabled={isDisabled} 
