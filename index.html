@@ -22,42 +22,34 @@
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 
-    <style>
+   <style>
+    /* Ép tất cả mọi thành phần trên trang dùng Times New Roman */
+    * {
+        font-family: "Times New Roman", Times, serif !important;
+    }
+
     body {
-        font-family: "Times New Roman", Times, serif;
         background-color: #070a14;
         color: #f3f4f6;
     }
+    
     h1, h2, h3, .font-kanit-black {
-        font-family: "Times New Roman", Times, serif;
         font-weight: 900;
     }
-    input, select, textarea, button {
-        font-family: "Times New Roman", Times, serif;
-    }
-<style>
-    body {
-        font-family: "Times New Roman", Times, serif;
-        background-color: #070a14;
-        color: #f3f4f6;
-    }
-    h1, h2, h3, .font-kanit-black {
-        font-family: "Times New Roman", Times, serif;
-        font-weight: 900;
-    }
-    input, select, textarea, button {
-        font-family: "Times New Roman", Times, serif;
-    }
+    
     ::-webkit-scrollbar {
         width: 6px;
     }
+    
     ::-webkit-scrollbar-track {
         background: #1f2937;
     }
+    
     ::-webkit-scrollbar-thumb {
         background: #4b5563;
         border-radius: 3px;
     }
+    
     ::-webkit-scrollbar-thumb:hover {
         background: #6b7280;
     }
@@ -70,6 +62,7 @@
         height: 40px;
         animation: spin 1s linear infinite;
     }
+    
     @keyframes spin {
         0% { transform: rotate(0deg); }
         100% { transform: rotate(360deg); }
