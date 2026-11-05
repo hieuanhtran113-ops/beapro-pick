@@ -35,47 +35,46 @@
     input, select, textarea, button {
         font-family: "Times New Roman", Times, serif;
     }
+<style>
+    body {
+        font-family: "Times New Roman", Times, serif;
+        background-color: #070a14;
+        color: #f3f4f6;
+    }
+    h1, h2, h3, .font-kanit-black {
+        font-family: "Times New Roman", Times, serif;
+        font-weight: 900;
+    }
+    input, select, textarea, button {
+        font-family: "Times New Roman", Times, serif;
+    }
+    ::-webkit-scrollbar {
+        width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+        background: #1f2937;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #4b5563;
+        border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #6b7280;
+    }
+    
+    .loader {
+        border: 4px solid #1f2937;
+        border-top: 4px solid #3b82f6;
+        border-radius: 50%;
+        width: 40px;
+        height: 40px;
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
 </style>
-
-        body {
-            font-family: 'Kanit', sans-serif;
-            background-color: #070a14;
-            color: #f3f4f6;
-        }
-        h1, h2, h3, .font-kanit-black {
-            font-family: 'Kanit', sans-serif;
-            font-weight: 900;
-        }
-        input, select, textarea, button {
-            font-family: 'Kanit', sans-serif;
-        }
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #1f2937;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #4b5563;
-            border-radius: 3px;
-        }
-        ::-webkit-scrollbar-thumb:hover {
-            background: #6b7280;
-        }
-        
-        .loader {
-            border: 4px solid #1f2937;
-            border-top: 4px solid #3b82f6;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-    </style>
 </head>
 <body>
     <div id="root"></div>
